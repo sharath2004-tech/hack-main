@@ -1,6 +1,12 @@
 import React, { useState } from 'react';
 import { Navigation } from './components/Navigation';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import {
+    DEFAULT_PAGE_BY_ROLE,
+    ROLE_MENU_ITEMS,
+    SHARED_PAGES,
+    type RoleKey,
+} from './lib/navigationConfig';
 import { ApprovalRules } from './pages/admin/ApprovalRules';
 import { AuditLogs } from './pages/admin/AuditLogs';
 import { CompanySettings } from './pages/admin/CompanySettings';
@@ -11,12 +17,6 @@ import { Login } from './pages/Login';
 import { ManagerDashboard } from './pages/manager/ManagerDashboard';
 import { Notifications } from './pages/Notifications';
 import { Signup } from './pages/Signup';
-import {
-  DEFAULT_PAGE_BY_ROLE,
-  ROLE_MENU_ITEMS,
-  SHARED_PAGES,
-  type RoleKey,
-} from './lib/navigationConfig';
 
 const AppContent: React.FC = () => {
   const { user, loading, configError } = useAuth();

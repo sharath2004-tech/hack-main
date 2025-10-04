@@ -1,6 +1,6 @@
+import { UserPlus } from 'lucide-react';
 import React, { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { UserPlus } from 'lucide-react';
 
 export const Signup: React.FC<{ onNavigateToLogin: () => void }> = ({ onNavigateToLogin }) => {
   const { signUp } = useAuth();

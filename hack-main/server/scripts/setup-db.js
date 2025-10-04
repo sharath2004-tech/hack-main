@@ -1,8 +1,8 @@
+import dotenv from 'dotenv';
+import { createConnection } from 'mysql2/promise';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createConnection } from 'mysql2/promise';
-import dotenv from 'dotenv';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

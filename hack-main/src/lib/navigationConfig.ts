@@ -1,11 +1,11 @@
-import type { ComponentType } from 'react';
 import {
-  LayoutDashboard,
-  Users,
-  FileText,
-  CheckSquare,
-  Settings,
+    CheckSquare,
+    FileText,
+    LayoutDashboard,
+    Settings,
+    Users,
 } from 'lucide-react';
+import type { ComponentType } from 'react';
 
 export type RoleKey = 'admin' | 'manager' | 'employee';
 

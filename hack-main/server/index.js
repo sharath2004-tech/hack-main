@@ -3,16 +3,16 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import express from 'express';
 import jwt from 'jsonwebtoken';
-import multer from 'multer';
 import morgan from 'morgan';
+import multer from 'multer';
 import { createPool } from 'mysql2/promise';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { analyzeReceipt, shutdownWorker } from './lib/receiptParser.js';
 import { convertCurrency, listSupportedCurrencies } from './lib/currencyRates.js';
+import { analyzeReceipt, shutdownWorker } from './lib/receiptParser.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

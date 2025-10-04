@@ -1,6 +1,6 @@
+import { Bell, LayoutDashboard, LogOut, Menu, X } from 'lucide-react';
 import React, { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { LayoutDashboard, LogOut, Bell, Menu, X } from 'lucide-react';
 import { ROLE_MENU_ITEMS, type RoleKey } from '../lib/navigationConfig';
 
 interface NavigationProps {
