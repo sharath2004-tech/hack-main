@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { convertCurrency, listSupportedCurrencies } from './lib/currencyRates.js';
+import { convertCurrency, getActiveCurrencyProvider, listSupportedCurrencies } from './lib/currencyRates.js';
 import { analyzeReceipt, shutdownWorker } from './lib/receiptParser.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -96,6 +96,13 @@ const pool = createPool({
 });
 
 const app = express();
+
+const currencyProviderMeta = getActiveCurrencyProvider();
+console.log(
+  `Using ${currencyProviderMeta.label} for FX rates${
+    currencyProviderMeta.requiresKey ? ' (API key configured)' : ''
+  }`
+);
 
 const allowedOrigins = CLIENT_ORIGIN.split(',').map((origin) => origin.trim()).filter(Boolean);
 
@@ -204,6 +211,47 @@ const normalizeApproverList = (value) => {
   return Array.from(unique);
 };
 
+const parseApproverSequence = (value) => {
+  const parsed = parseJsonField(value);
+  if (!Array.isArray(parsed)) {
+    return [];
+  }
+
+  const interim = [];
+
+  for (const entry of parsed) {
+    if (!entry) continue;
+    if (typeof entry === 'string') {
+      interim.push({ approver_id: String(entry).trim(), order: interim.length + 1 });
+      continue;
+    }
+    const id = entry.approver_id ?? entry.id ?? entry.user_id ?? entry.value;
+    if (!id) continue;
+    const normalizedId = String(id).trim();
+    if (!normalizedId) continue;
+    const rawOrder = Number(entry.order ?? entry.sequence ?? entry.step ?? interim.length + 1);
+    const order = Number.isFinite(rawOrder) && rawOrder > 0 ? Math.floor(rawOrder) : interim.length + 1;
+    interim.push({ approver_id: normalizedId, order });
+  }
+
+  interim.sort((a, b) => {
+    if (a.order === b.order) {
+      return a.approver_id.localeCompare(b.approver_id);
+    }
+    return a.order - b.order;
+  });
+
+  const unique = [];
+  const seen = new Set();
+  for (const item of interim) {
+    if (!item.approver_id || seen.has(item.approver_id)) continue;
+    seen.add(item.approver_id);
+    unique.push(item);
+  }
+
+  return unique.map((item, index) => ({ approver_id: item.approver_id, order: index + 1 }));
+};
+
 const normalizeRulePayload = (raw) => {
   const ruleTypeRaw = typeof raw.rule_type === 'string' ? raw.rule_type.toLowerCase() : 'percentage';
   if (!VALID_RULE_TYPES.has(ruleTypeRaw)) {
@@ -268,11 +316,48 @@ const normalizeRulePayload = (raw) => {
     }
   }
 
+  const rawSequence = Array.isArray(raw.approver_sequence) ? raw.approver_sequence : [];
+  const sequenceIds = [];
+  const pushUnique = (id) => {
+    const normalized = id ? String(id).trim() : '';
+    if (!normalized) return;
+    if (!sequenceIds.includes(normalized)) {
+      sequenceIds.push(normalized);
+    }
+  };
+
+  if (rawSequence.length > 0) {
+    for (const entry of rawSequence) {
+      if (!entry) continue;
+      if (typeof entry === 'string') {
+        pushUnique(entry);
+        continue;
+      }
+      pushUnique(entry.approver_id ?? entry.id ?? entry.user_id ?? entry.value);
+    }
+  }
+
+  if (ruleTypeRaw !== 'specific') {
+    for (const id of normalizedApprovers) {
+      pushUnique(id);
+    }
+  }
+
+  if (specificApprover) {
+    pushUnique(specificApprover);
+  }
+
+  const normalizedSequence = sequenceIds.map((id, index) => ({
+    approver_id: id,
+    order: index + 1,
+  }));
+
   return {
     rule_type: ruleTypeRaw,
     approvers: normalizedApprovers,
     min_approval_percentage: ruleTypeRaw === 'specific' ? 0 : Math.round(minApprovalPercentage),
     specific_approver_required: specificApprover,
+    approver_sequence: normalizedSequence,
   };
 };
 
@@ -288,6 +373,7 @@ const fetchCompanyApprovalRules = async (connection, companyId) => {
     min_approval_percentage: Number(row.min_approval_percentage ?? 0),
     specific_approver_required: row.specific_approver_required || null,
     created_at: row.created_at,
+    approver_sequence: parseApproverSequence(row.approver_sequence),
   }));
 };
 
@@ -297,11 +383,231 @@ const gatherApproverIdsFromRules = (rules) => {
     for (const approverId of rule.approvers || []) {
       if (approverId) ids.add(approverId);
     }
+    if (Array.isArray(rule.approver_sequence)) {
+      for (const step of rule.approver_sequence) {
+        if (step?.approver_id) {
+          ids.add(step.approver_id);
+        }
+      }
+    }
     if (rule.specific_approver_required) {
       ids.add(rule.specific_approver_required);
     }
   }
   return Array.from(ids);
+};
+
+const buildApprovalWorkflow = (rules) => {
+  const stageMap = new Map();
+
+  const addToStage = (order, approverId) => {
+    if (!approverId) return;
+    const normalized = String(approverId).trim();
+    if (!normalized) return;
+    const stageOrder = Number.isFinite(order) && order > 0 ? Math.floor(order) : stageMap.size + 1;
+    if (!stageMap.has(stageOrder)) {
+      stageMap.set(stageOrder, new Set());
+    }
+    stageMap.get(stageOrder).add(normalized);
+  };
+
+  for (const rule of rules) {
+    const hasSequence = Array.isArray(rule.approver_sequence) && rule.approver_sequence.length > 0;
+
+    if (hasSequence) {
+      for (const step of rule.approver_sequence) {
+        if (!step) continue;
+        addToStage(step.order, step.approver_id);
+      }
+    }
+
+    if (!hasSequence && Array.isArray(rule.approvers)) {
+      rule.approvers.forEach((approverId, index) => {
+        addToStage(index + 1, approverId);
+      });
+    }
+
+    if (rule.specific_approver_required) {
+      const alreadyIncluded = (!!rule.approver_sequence && rule.approver_sequence.some((step) => step?.approver_id === rule.specific_approver_required))
+        || (Array.isArray(rule.approvers) && rule.approvers.includes(rule.specific_approver_required));
+
+      if (!alreadyIncluded) {
+        const maxExistingOrder = stageMap.size > 0 ? Math.max(...stageMap.keys()) : 0;
+        addToStage(maxExistingOrder + 1, rule.specific_approver_required);
+      }
+    }
+  }
+
+  const sortedOrders = [...stageMap.keys()].sort((a, b) => a - b);
+  const seenGlobal = new Set();
+  const steps = [];
+  let nextOrder = 1;
+
+  for (const order of sortedOrders) {
+    const stageApprovers = Array.from(stageMap.get(order) || []);
+    const filtered = stageApprovers.filter((id) => {
+      if (seenGlobal.has(id)) return false;
+      seenGlobal.add(id);
+      return true;
+    });
+
+    if (filtered.length > 0) {
+      steps.push({ order: nextOrder++, approverIds: filtered });
+    }
+  }
+
+  return steps;
+};
+
+const resolveApproverIds = async (connection, companyId, candidateIds, excludeUserId) => {
+  const uniqueCandidates = Array.from(
+    new Set(
+      (candidateIds || [])
+        .map((id) => (id ? String(id).trim() : ''))
+        .filter((id) => id.length > 0 && id !== excludeUserId)
+    )
+  );
+
+  if (uniqueCandidates.length === 0) {
+    return [];
+  }
+
+  const placeholders = uniqueCandidates.map(() => '?').join(',');
+  const [rows] = await connection.query(
+    `SELECT id FROM users WHERE company_id = ? AND id IN (${placeholders})`,
+    [companyId, ...uniqueCandidates]
+  );
+
+  return rows.map((row) => row.id).filter((id) => id !== excludeUserId);
+};
+
+const createApprovalsForStage = async (connection, {
+  expenseId,
+  approverIds,
+  stageOrder,
+  now,
+  notificationBuilder,
+}) => {
+  const inserted = [];
+
+  for (const approverId of approverIds) {
+    if (!approverId) continue;
+    const approvalId = crypto.randomUUID();
+    await connection.query(
+      'INSERT INTO approvals (id, expense_id, approver_id, sequence_order, status, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+      [approvalId, expenseId, approverId, stageOrder, 'pending', now]
+    );
+
+    if (typeof notificationBuilder === 'function') {
+      const notification = notificationBuilder(approverId, stageOrder);
+      if (notification && notification.title && notification.message) {
+        await connection.query(
+          'INSERT INTO notifications (id, user_id, title, message, type, related_entity_id, `read`, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+          [
+            crypto.randomUUID(),
+            approverId,
+            notification.title,
+            notification.message,
+            notification.type || 'approval',
+            expenseId,
+            0,
+            now,
+          ]
+        );
+      }
+    }
+
+    inserted.push({ approver_id: approverId, sequence_order: stageOrder, status: 'pending' });
+  }
+
+  return inserted;
+};
+
+const maybeActivateNextApprovalStage = async (connection, {
+  expense,
+  rules,
+  approvals,
+  now,
+}) => {
+  if (!Array.isArray(approvals) || approvals.length === 0) {
+    return approvals;
+  }
+
+  if (approvals.some((record) => record.status === 'rejected')) {
+    return approvals;
+  }
+
+  const workflow = buildApprovalWorkflow(rules);
+  if (workflow.length === 0) {
+    return approvals;
+  }
+
+  const expenseCurrency = expense?.currency ? String(expense.currency).toUpperCase() : 'USD';
+  const expenseAmountNumber = Number(expense?.amount ?? 0);
+
+  const approvalsByStage = new Map();
+  for (const approval of approvals) {
+    const stageOrder = Number.isFinite(approval.sequence_order) && approval.sequence_order > 0 ? Math.floor(approval.sequence_order) : 1;
+    if (!approvalsByStage.has(stageOrder)) {
+      approvalsByStage.set(stageOrder, []);
+    }
+    approvalsByStage.get(stageOrder).push(approval);
+  }
+
+  const createdStages = new Set(approvals.map((approval) => (Number.isFinite(approval.sequence_order) && approval.sequence_order > 0 ? Math.floor(approval.sequence_order) : 1)));
+  const sortedWorkflow = [...workflow].sort((a, b) => a.order - b.order);
+
+  for (const stage of sortedWorkflow) {
+    if (!createdStages.has(stage.order)) {
+      const previousStages = sortedWorkflow.filter((candidate) => candidate.order < stage.order);
+      const previousComplete = previousStages.every((prevStage) => {
+        const prevApprovals = approvalsByStage.get(prevStage.order) || [];
+        if (prevApprovals.length === 0) {
+          return false;
+        }
+        return prevApprovals.every((record) => record.status === 'approved');
+      });
+
+      if (!previousComplete) {
+        break;
+      }
+
+      const resolvedApprovers = await resolveApproverIds(connection, expense.company_id, stage.approverIds, expense.user_id);
+      const filtered = resolvedApprovers.filter(
+        (approverId) => !approvals.some((record) => record.approver_id === approverId && record.sequence_order === stage.order)
+      );
+
+      if (filtered.length === 0) {
+        continue;
+      }
+
+      await createApprovalsForStage(connection, {
+        expenseId: expense.id,
+        approverIds: filtered,
+        stageOrder: stage.order,
+        now,
+        notificationBuilder: (_approverId, stepOrder) => ({
+          title: 'Expense Approval Needed',
+          message: `${expenseCurrency} ${expenseAmountNumber.toFixed(2)} requires your approval (Step ${stepOrder}).`,
+          type: 'approval',
+        }),
+      });
+
+      const [updatedApprovals] = await connection.query(
+        'SELECT approver_id, status, sequence_order FROM approvals WHERE expense_id = ?',
+        [expense.id]
+      );
+
+      return updatedApprovals;
+    }
+
+    const currentStageApprovals = approvalsByStage.get(stage.order) || [];
+    if (currentStageApprovals.some((record) => record.status === 'pending')) {
+      break;
+    }
+  }
+
+  return approvals;
 };
 
 const evaluateRulesOutcome = (rules, approvalRecords) => {
@@ -635,47 +941,50 @@ app.post('/api/expenses', authMiddleware, attachUser, uploadReceipt.single('rece
     );
 
     const rules = await fetchCompanyApprovalRules(connection, req.user.company_id);
-    const candidateIds = gatherApproverIdsFromRules(rules).filter((id) => id !== req.user.id);
+    const workflow = buildApprovalWorkflow(rules);
 
-    let approverIds = [];
-    if (candidateIds.length > 0) {
-      const placeholders = candidateIds.map(() => '?').join(',');
-      const [rows] = await connection.query(
-        `SELECT id FROM users WHERE company_id = ? AND id IN (${placeholders})`,
-        [req.user.company_id, ...candidateIds]
+    let activeStage = null;
+    let activeApproverIds = [];
+
+    for (const stage of workflow) {
+      const resolvedIds = await resolveApproverIds(
+        connection,
+        req.user.company_id,
+        stage.approverIds,
+        req.user.id
       );
-      approverIds = rows.map((row) => row.id).filter((id) => id !== req.user.id);
+      if (resolvedIds.length > 0) {
+        activeStage = stage;
+        activeApproverIds = resolvedIds;
+        break;
+      }
     }
 
-    if (approverIds.length === 0) {
+    if (activeApproverIds.length === 0) {
       const [managerRows] = await connection.query(
         'SELECT id FROM users WHERE company_id = ? AND role IN ("manager", "admin")',
         [req.user.company_id]
       );
-      approverIds = managerRows.map((row) => row.id).filter((id) => id !== req.user.id);
+      activeApproverIds = managerRows.map((row) => row.id).filter((id) => id !== req.user.id);
+      if (activeApproverIds.length > 0) {
+        activeStage = { order: 1, approverIds: activeApproverIds };
+      }
     }
 
-    const uniqueApproverIds = Array.from(new Set(approverIds));
+    const uniqueApproverIds = Array.from(new Set(activeApproverIds));
 
-    for (const approverId of uniqueApproverIds) {
-      await connection.query(
-        'INSERT INTO approvals (id, expense_id, approver_id, status, created_at) VALUES (?, ?, ?, ?, ?)',
-        [crypto.randomUUID(), expenseId, approverId, 'pending', now]
-      );
-
-      await connection.query(
-        'INSERT INTO notifications (id, user_id, title, message, type, related_entity_id, `read`, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-        [
-          crypto.randomUUID(),
-          approverId,
-          'New Expense Approval',
-          `${req.user.name} submitted an expense for ${currency} ${normalizedAmount.toFixed(2)}`,
-          'approval',
-          expenseId,
-          0,
-          now,
-        ]
-      );
+    if (uniqueApproverIds.length > 0) {
+      await createApprovalsForStage(connection, {
+        expenseId,
+        approverIds: uniqueApproverIds,
+        stageOrder: activeStage?.order || 1,
+        now,
+        notificationBuilder: (_approverId, stepOrder) => ({
+          title: 'New Expense Approval',
+          message: `${req.user.name} submitted an expense for ${currency} ${normalizedAmount.toFixed(2)} (Step ${stepOrder}).`,
+          type: 'approval',
+        }),
+      });
     }
 
     await connection.query(
@@ -860,6 +1169,7 @@ app.get('/api/approval-rules', authMiddleware, attachUser, assertRole(['admin'])
       rules: rows.map((row) => ({
         ...row,
         approvers: normalizeApproverList(row.approvers),
+        approver_sequence: parseApproverSequence(row.approver_sequence),
         rule_type: row.rule_type || 'percentage',
         min_approval_percentage: Number(row.min_approval_percentage ?? 0),
         specific_approver_required: row.specific_approver_required || null,
@@ -892,13 +1202,14 @@ app.post('/api/approval-rules', authMiddleware, attachUser, assertRole(['admin']
     const now = currentSqlTimestamp();
 
     await pool.query(
-      'INSERT INTO approval_rules (id, company_id, rule_name, description, approvers, rule_type, min_approval_percentage, specific_approver_required, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO approval_rules (id, company_id, rule_name, description, approvers, approver_sequence, rule_type, min_approval_percentage, specific_approver_required, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [
         id,
         req.user.company_id,
         rule_name,
         description || null,
         JSON.stringify(normalized.approvers),
+        JSON.stringify(normalized.approver_sequence || []),
         normalized.rule_type,
         normalized.min_approval_percentage,
         normalized.specific_approver_required,
@@ -950,11 +1261,12 @@ app.patch('/api/approval-rules/:id', authMiddleware, attachUser, assertRole(['ad
 
   try {
     await pool.query(
-      'UPDATE approval_rules SET rule_name = ?, description = ?, approvers = ?, rule_type = ?, min_approval_percentage = ?, specific_approver_required = ? WHERE id = ? AND company_id = ?',
+      'UPDATE approval_rules SET rule_name = ?, description = ?, approvers = ?, approver_sequence = ?, rule_type = ?, min_approval_percentage = ?, specific_approver_required = ? WHERE id = ? AND company_id = ?',
       [
         rule_name,
         description || null,
         JSON.stringify(normalized.approvers),
+        JSON.stringify(normalized.approver_sequence || []),
         normalized.rule_type,
         normalized.min_approval_percentage,
         normalized.specific_approver_required,
@@ -1080,6 +1392,7 @@ app.get('/api/currency/rates', authMiddleware, attachUser, async (req, res) => {
       base: result.base,
       rates: result.rates,
       updated_at: result.updated_at,
+      provider: result.provider,
     });
   } catch (error) {
     console.error('Failed to fetch currency rates', error);
@@ -1234,12 +1547,26 @@ app.post('/api/approvals/:id/decision', authMiddleware, attachUser, assertRole([
       id,
     ]);
 
-    const [allApprovals] = await connection.query(
-      'SELECT approver_id, status FROM approvals WHERE expense_id = ?',
+    let [allApprovals] = await connection.query(
+      'SELECT approver_id, status, sequence_order FROM approvals WHERE expense_id = ?',
       [approval.expense_id]
     );
 
     const rules = await fetchCompanyApprovalRules(connection, req.user.company_id);
+
+    allApprovals = await maybeActivateNextApprovalStage(connection, {
+      expense: {
+        id: existingExpense.id,
+        company_id: req.user.company_id,
+        user_id: existingExpense.user_id,
+        amount: existingExpense.amount,
+        currency: existingExpense.currency,
+      },
+      rules,
+      approvals: allApprovals,
+      now: currentSqlTimestamp(),
+    });
+
     const expenseStatus = evaluateRulesOutcome(rules, allApprovals);
 
     await connection.query('UPDATE expenses SET status = ?, updated_at = ? WHERE id = ?', [

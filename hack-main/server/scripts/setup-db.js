@@ -54,20 +54,54 @@ const ensureExpenseColumns = async (connection, database) => {
 };
 
 const ensureApprovalRuleColumns = async (connection, database) => {
+  const checks = [
+    {
+      column: 'rule_type',
+      action: async () => {
+        console.log('Adding missing column `rule_type` to approval_rules...');
+        await connection.query(
+          "ALTER TABLE approval_rules ADD COLUMN `rule_type` ENUM('percentage','specific','hybrid') NOT NULL DEFAULT 'percentage' AFTER approvers"
+        );
+      },
+    },
+    {
+      column: 'approver_sequence',
+      action: async () => {
+        console.log('Adding missing column `approver_sequence` to approval_rules...');
+        await connection.query('ALTER TABLE approval_rules ADD COLUMN `approver_sequence` JSON NULL AFTER approvers');
+      },
+    },
+  ];
+
+  for (const check of checks) {
+    const [rows] = await connection.query(
+      `SELECT COUNT(*) AS count
+         FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = ?
+          AND TABLE_NAME = 'approval_rules'
+          AND COLUMN_NAME = ?`,
+      [database, check.column]
+    );
+
+    if (rows[0]?.count === 0) {
+      await check.action();
+    }
+  }
+};
+
+const ensureApprovalsSequenceColumn = async (connection, database) => {
   const [rows] = await connection.query(
     `SELECT COUNT(*) AS count
        FROM INFORMATION_SCHEMA.COLUMNS
       WHERE TABLE_SCHEMA = ?
-        AND TABLE_NAME = 'approval_rules'
-        AND COLUMN_NAME = 'rule_type'`,
+        AND TABLE_NAME = 'approvals'
+        AND COLUMN_NAME = 'sequence_order'`,
     [database]
   );
 
   if (rows[0]?.count === 0) {
-    console.log('Adding missing column `rule_type` to approval_rules...');
-    await connection.query(
-      "ALTER TABLE approval_rules ADD COLUMN `rule_type` ENUM('percentage','specific','hybrid') NOT NULL DEFAULT 'percentage' AFTER approvers"
-    );
+    console.log('Adding missing column `sequence_order` to approvals...');
+    await connection.query('ALTER TABLE approvals ADD COLUMN `sequence_order` INT NOT NULL DEFAULT 1 AFTER approver_id');
   }
 };
 
@@ -112,6 +146,7 @@ const run = async () => {
 
   await ensureExpenseColumns(dbConnection, database);
   await ensureApprovalRuleColumns(dbConnection, database);
+  await ensureApprovalsSequenceColumn(dbConnection, database);
 
   await dbConnection.end();
 

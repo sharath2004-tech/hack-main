@@ -112,6 +112,13 @@ export const ApprovalRules: React.FC = () => {
     const percentageEnabled = formData.rule_type !== 'specific';
     const specificEnabled = formData.rule_type !== 'percentage';
 
+    const sequencePayload =
+      formData.rule_type === 'specific'
+        ? formData.specific_approver_required
+          ? [{ approver_id: formData.specific_approver_required, order: 1 }]
+          : []
+        : formData.approvers.map((approverId, index) => ({ approver_id: approverId, order: index + 1 }));
+
     const payload = {
       company_id: currentUser?.company_id,
       rule_name: formData.rule_name,
@@ -124,6 +131,7 @@ export const ApprovalRules: React.FC = () => {
       specific_approver_required: specificEnabled
         ? formData.specific_approver_required || null
         : null,
+      approver_sequence: sequencePayload,
     };
 
     try {
@@ -162,10 +170,17 @@ export const ApprovalRules: React.FC = () => {
 
   const handleEdit = (rule: ApprovalRule) => {
     setEditingRule(rule);
+    const orderedApprovers = Array.isArray(rule.approver_sequence) && rule.approver_sequence.length > 0
+      ? [...rule.approver_sequence]
+          .sort((a, b) => a.order - b.order)
+          .map((step) => step.approver_id)
+      : Array.isArray(rule.approvers)
+      ? rule.approvers
+      : [];
     setFormData({
       rule_name: rule.rule_name,
       description: rule.description || '',
-      approvers: Array.isArray(rule.approvers) ? rule.approvers : [],
+      approvers: orderedApprovers,
       rule_type: rule.rule_type,
       min_approval_percentage: rule.min_approval_percentage,
       specific_approver_required: rule.specific_approver_required || '',
@@ -182,8 +197,34 @@ export const ApprovalRules: React.FC = () => {
     });
   };
 
+  const moveApprover = (fromIndex: number, toIndex: number) => {
+    setFormData((prev) => {
+      if (toIndex < 0 || toIndex >= prev.approvers.length) {
+        return prev;
+      }
+      const next = [...prev.approvers];
+      const [moved] = next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, moved);
+      return { ...prev, approvers: next };
+    });
+  };
+
+  const removeApproverFromSequence = (userId: string) => {
+    setFormData((prev) => ({ ...prev, approvers: prev.approvers.filter((id) => id !== userId) }));
+  };
+
   const getApproverLabel = useCallback(
     (rule: ApprovalRule) => {
+      if (Array.isArray(rule.approver_sequence) && rule.approver_sequence.length > 0) {
+        const steps = [...rule.approver_sequence]
+          .sort((a, b) => a.order - b.order)
+          .map((step) => usersById.get(step.approver_id)?.name)
+          .filter((name): name is string => Boolean(name));
+        if (steps.length > 0) {
+          return steps.join(' → ');
+        }
+      }
+
       if (!rule.approvers || rule.approvers.length === 0) {
         return 'All managers/admins';
       }
@@ -388,8 +429,60 @@ export const ApprovalRules: React.FC = () => {
                     )}
                   </div>
                   <p className="mt-2 text-xs text-slate-500">
-                    Choose who should count toward the approval percentage threshold.
+                    Choose who should count toward the approval percentage threshold and arrange their order below.
                   </p>
+                  {formData.approvers.length > 0 && (
+                    <div className="mt-4">
+                      <div className="text-sm font-medium text-slate-700 mb-2">Approval Sequence</div>
+                      <ol className="space-y-2">
+                        {formData.approvers.map((approverId, index) => {
+                          const approver = usersById.get(approverId);
+                          return (
+                            <li
+                              key={approverId}
+                              className="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-lg px-3 py-2"
+                            >
+                              <div>
+                                <div className="text-xs font-semibold text-slate-500 uppercase">Step {index + 1}</div>
+                                <div className="text-sm text-slate-900">
+                                  {approver?.name ?? 'Unknown User'}{' '}
+                                  <span className="text-xs text-slate-500">({approver?.role ?? 'n/a'})</span>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => moveApprover(index, index - 1)}
+                                  disabled={index === 0}
+                                  className="px-2 py-1 text-xs border border-slate-300 rounded disabled:opacity-40"
+                                >
+                                  Up
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => moveApprover(index, index + 1)}
+                                  disabled={index === formData.approvers.length - 1}
+                                  className="px-2 py-1 text-xs border border-slate-300 rounded disabled:opacity-40"
+                                >
+                                  Down
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => removeApproverFromSequence(approverId)}
+                                  className="px-2 py-1 text-xs border border-red-300 text-red-600 rounded hover:bg-red-50"
+                                >
+                                  Remove
+                                </button>
+                              </div>
+                            </li>
+                          );
+                        })}
+                      </ol>
+                      <p className="mt-2 text-xs text-slate-500">
+                        Approval requests are sent in sequence. The next step activates once the previous step is approved.
+                      </p>
+                    </div>
+                  )}
                 </div>
               )}
 

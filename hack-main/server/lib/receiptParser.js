@@ -143,9 +143,12 @@ const extractTextFromPdf = async (filePath) => {
     const details = typeof error?.details === 'string' ? error.details : '';
     const isTokenLengthError =
       message.includes('Command token too long') || details.includes('Command token too long');
+    const isBadXrefError =
+      message.includes('bad XRef entry') || details.includes('bad XRef entry') || message.includes('FormatError');
 
-    if (isTokenLengthError) {
-      console.warn('pdf-parse failed due to token length. Falling back to pdf2json.');
+    if (isTokenLengthError || isBadXrefError) {
+      const reason = isTokenLengthError ? 'token length' : 'bad XRef entry';
+      console.warn(`pdf-parse failed due to ${reason}. Falling back to pdf2json.`);
       const fallbackText = await parseWithPdf2Json();
       if (fallbackText && fallbackText.trim().length > 0) {
         return {

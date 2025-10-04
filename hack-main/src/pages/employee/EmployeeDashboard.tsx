@@ -17,6 +17,15 @@ type ExpenseFormState = {
   remarks: string;
 };
 
+type AutoConversionInfo = {
+  fromCurrency: string;
+  toCurrency: string;
+  originalAmount: number;
+  convertedAmount: number;
+  rate: number;
+  updatedAt: string;
+};
+
 export const EmployeeDashboard: React.FC = () => {
   const { user, token } = useAuth();
   const [categories, setCategories] = useState<ExpenseCategory[]>([]);
@@ -30,6 +39,7 @@ export const EmployeeDashboard: React.FC = () => {
   const [conversionQuote, setConversionQuote] = useState<CurrencyQuote | null>(null);
   const [conversionLoading, setConversionLoading] = useState(false);
   const [conversionError, setConversionError] = useState<string | null>(null);
+  const [autoConversionInfo, setAutoConversionInfo] = useState<AutoConversionInfo | null>(null);
   const defaultDateRef = useRef(new Date().toISOString().split('T')[0]);
   const defaultCurrencyRef = useRef<string>('USD');
   const [formData, setFormData] = useState<ExpenseFormState>({
@@ -101,6 +111,7 @@ export const EmployeeDashboard: React.FC = () => {
     setConversionQuote(null);
     setConversionError(null);
     setConversionLoading(false);
+  setAutoConversionInfo(null);
     if (conversionTimeoutRef.current !== null) {
       window.clearTimeout(conversionTimeoutRef.current);
       conversionTimeoutRef.current = null;
@@ -117,6 +128,7 @@ export const EmployeeDashboard: React.FC = () => {
 
       if (!file) {
         setReceiptFile(null);
+        setAutoConversionInfo(null);
         return;
       }
 
@@ -142,6 +154,7 @@ export const EmployeeDashboard: React.FC = () => {
         );
 
         setAnalysisResult(data.analysis ?? null);
+        setAutoConversionInfo(null);
       } catch (error: unknown) {
         const apiError = error as { message?: string } | undefined;
         setAnalysisError(apiError?.message || 'We could not read this receipt. Please fill in the details manually.');
@@ -210,6 +223,65 @@ export const EmployeeDashboard: React.FC = () => {
   }, [analysisResult, categories]);
 
   useEffect(() => {
+    if (!analysisResult || !token) return;
+    const receiptCurrencyRaw = analysisResult.currency;
+    const receiptAmountRaw = analysisResult.amount;
+
+    if (!receiptCurrencyRaw || receiptAmountRaw === null || receiptAmountRaw === undefined) {
+      setAutoConversionInfo(null);
+      return;
+    }
+
+    const receiptCurrency = receiptCurrencyRaw.toUpperCase();
+    const targetCurrency = companyCurrency.toUpperCase();
+
+    if (receiptCurrency === targetCurrency) {
+      setAutoConversionInfo(null);
+      return;
+    }
+
+    const receiptAmount = typeof receiptAmountRaw === 'number' ? receiptAmountRaw : Number(receiptAmountRaw);
+    if (!Number.isFinite(receiptAmount) || receiptAmount <= 0) {
+      setAutoConversionInfo(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    const convert = async () => {
+      try {
+        const quote = await fetchCurrencyConversion(token, receiptCurrency, targetCurrency, receiptAmount);
+        if (cancelled) return;
+
+        setFormData((prev) => ({
+          ...prev,
+          amount: quote.converted_amount.toFixed(2),
+          currency: targetCurrency,
+        }));
+
+        setAutoConversionInfo({
+          fromCurrency: receiptCurrency,
+          toCurrency: targetCurrency,
+          originalAmount: receiptAmount,
+          convertedAmount: quote.converted_amount,
+          rate: quote.rate,
+          updatedAt: quote.updated_at,
+        });
+      } catch (error) {
+        if (cancelled) return;
+        console.error('Automatic currency conversion failed', error);
+        setAutoConversionInfo(null);
+      }
+    };
+
+    convert();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [analysisResult, companyCurrency, token]);
+
+  useEffect(() => {
     if (!token) {
       setConversionQuote(null);
       setConversionError(null);
@@ -227,6 +299,7 @@ export const EmployeeDashboard: React.FC = () => {
       setConversionQuote(null);
       setConversionError(null);
       setConversionLoading(false);
+      setAutoConversionInfo(null);
       if (conversionTimeoutRef.current !== null) {
         window.clearTimeout(conversionTimeoutRef.current);
         conversionTimeoutRef.current = null;
@@ -241,6 +314,7 @@ export const EmployeeDashboard: React.FC = () => {
       setConversionQuote(null);
       setConversionError(null);
       setConversionLoading(false);
+      setAutoConversionInfo(null);
       if (conversionTimeoutRef.current !== null) {
         window.clearTimeout(conversionTimeoutRef.current);
         conversionTimeoutRef.current = null;
@@ -260,7 +334,32 @@ export const EmployeeDashboard: React.FC = () => {
       try {
         const quote = await fetchCurrencyConversion(token, fromCurrency, toCurrency, amountValue);
         if (!cancelled) {
-          setConversionQuote(quote);
+          setFormData((prev) => {
+            const nextAmount = quote.converted_amount.toFixed(2);
+            if (
+              prev.currency.toUpperCase() === toCurrency &&
+              Number(prev.amount) === Number(nextAmount)
+            ) {
+              return prev;
+            }
+
+            return {
+              ...prev,
+              amount: nextAmount,
+              currency: toCurrency,
+            };
+          });
+
+          setAutoConversionInfo({
+            fromCurrency,
+            toCurrency,
+            originalAmount: amountValue,
+            convertedAmount: quote.converted_amount,
+            rate: quote.rate,
+            updatedAt: quote.updated_at,
+          });
+
+          setConversionQuote(null);
           setConversionError(null);
         }
       } catch (error) {
@@ -268,6 +367,7 @@ export const EmployeeDashboard: React.FC = () => {
           const apiError = error as { message?: string } | undefined;
           setConversionQuote(null);
           setConversionError(apiError?.message || 'Unable to convert amount right now.');
+          setAutoConversionInfo(null);
         }
       } finally {
         if (!cancelled) {
@@ -451,18 +551,33 @@ export const EmployeeDashboard: React.FC = () => {
                   </p>
                 )}
                 {conversionQuote && !conversionLoading && (
-                  <p className="text-xs text-slate-600">
-                    ≈ {conversionQuote.target}{' '}
-                    {conversionQuote.converted_amount.toFixed(2)}{' '}
-                    <span className="text-slate-400">
-                      (rate {conversionQuote.rate.toFixed(4)} · updated{' '}
-                      {new Date(conversionQuote.updated_at).toLocaleString()})
-                    </span>
-                  </p>
+                  <div className="text-xs text-slate-600 space-y-0.5">
+                    <p>
+                      ≈ {conversionQuote.target}{' '}
+                      {conversionQuote.converted_amount.toFixed(2)}{' '}
+                      <span className="text-slate-400">
+                        (rate {conversionQuote.rate.toFixed(4)} · updated{' '}
+                        {new Date(conversionQuote.updated_at).toLocaleString()})
+                      </span>
+                    </p>
+                    {conversionQuote.provider && (
+                      <p className="text-[11px] text-slate-400">
+                        Rates by {conversionQuote.provider}
+                      </p>
+                    )}
+                  </div>
                 )}
                 {conversionError && !conversionLoading && (
                   <p className="text-xs text-red-600">{conversionError}</p>
                 )}
+              </div>
+            )}
+            {autoConversionInfo && (
+              <div className="mt-2 text-xs text-green-600">
+                Converted {autoConversionInfo.fromCurrency}{' '}
+                {autoConversionInfo.originalAmount.toFixed(2)} → {autoConversionInfo.toCurrency}{' '}
+                {autoConversionInfo.convertedAmount.toFixed(2)} (rate {autoConversionInfo.rate.toFixed(4)},
+                updated {new Date(autoConversionInfo.updatedAt).toLocaleString()})
               </div>
             )}
           </div>

@@ -18,6 +18,11 @@ export interface Company {
 
 export type ApprovalRuleType = 'percentage' | 'specific' | 'hybrid';
 
+export interface RuleApproverStep {
+  approver_id: string;
+  order: number;
+}
+
 export interface ApprovalRule {
   id: string;
   company_id: string;
@@ -28,6 +33,7 @@ export interface ApprovalRule {
   min_approval_percentage: number;
   specific_approver_required?: string;
   created_at: string;
+  approver_sequence?: RuleApproverStep[];
 }
 
 export interface ExpenseCategory {
@@ -107,10 +113,12 @@ export interface CurrencyQuote {
   amount: number;
   converted_amount: number;
   updated_at: string;
+  provider?: string;
 }
 
 export interface CurrencyRates {
   base: string;
   rates: Record<string, number>;
   updated_at: string;
+  provider?: string;
 }
