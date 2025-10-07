@@ -1,5 +1,5 @@
 import { CreditCard as Edit2, Trash2 } from 'lucide-react';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { request } from '../../lib/api';
 import { User } from '../../types';
@@ -16,6 +16,29 @@ export const UserManagement: React.FC = () => {
     role: 'employee' as 'admin' | 'manager' | 'employee',
     manager_id: '',
   });
+  const [deleteDialogUser, setDeleteDialogUser] = useState<User | null>(null);
+  const [deleteReassign, setDeleteReassign] = useState('');
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleteSubmitting, setDeleteSubmitting] = useState(false);
+  const directReports = useMemo(
+    () => (deleteDialogUser ? users.filter((u) => u.manager_id === deleteDialogUser.id) : []),
+    [deleteDialogUser, users]
+  );
+  const reassignCandidates = useMemo(
+    () =>
+      deleteDialogUser
+        ? users.filter(
+            (candidate) =>
+              (candidate.role === 'manager' || candidate.role === 'admin') && candidate.id !== deleteDialogUser.id
+          )
+        : [],
+    [deleteDialogUser, users]
+  );
+  const deleteRequiresReassign = useMemo(() => {
+    if (!deleteDialogUser) return false;
+    if (deleteDialogUser.role !== 'employee') return true;
+    return directReports.length > 0;
+  }, [deleteDialogUser, directReports]);
 
   const loadUsers = useCallback(async () => {
     if (!currentUser || !token) {
@@ -65,16 +88,37 @@ export const UserManagement: React.FC = () => {
     loadUsers();
   };
 
-  const handleDelete = async (userId: string) => {
-    if (!confirm('Are you sure you want to delete this user?')) return;
+  const startDelete = (user: User) => {
+    setDeleteDialogUser(user);
+    setDeleteReassign('');
+    setDeleteError(null);
+  };
 
-    if (!token) return;
+  const submitDelete = async () => {
+    if (!token || !deleteDialogUser) return;
+
+    setDeleteSubmitting(true);
+    setDeleteError(null);
 
     try {
-      await request(`/api/users/${userId}`, token, { method: 'DELETE' });
+      const payload: Record<string, string> = {};
+      if (deleteReassign) {
+        payload.reassign_to = deleteReassign;
+      }
+
+      await request(`/api/users/${deleteDialogUser.id}`, token, {
+        method: 'DELETE',
+        body: JSON.stringify(payload),
+      });
+
+      setDeleteDialogUser(null);
+      setDeleteReassign('');
       loadUsers();
     } catch (error) {
-      console.error('Failed to delete user', error);
+      const apiError = error as { message?: string };
+      setDeleteError(apiError?.message || 'Unable to delete user. Please resolve outstanding assignments.');
+    } finally {
+      setDeleteSubmitting(false);
     }
   };
 
@@ -167,7 +211,7 @@ export const UserManagement: React.FC = () => {
                         </button>
                         {user.id !== currentUser?.id && (
                           <button
-                            onClick={() => handleDelete(user.id)}
+                            onClick={() => startDelete(user)}
                             className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition"
                           >
                             <Trash2 className="w-4 h-4" />
@@ -271,6 +315,79 @@ export const UserManagement: React.FC = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {deleteDialogUser && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
+            <h2 className="text-2xl font-bold text-slate-900 mb-4">Delete User</h2>
+            <p className="text-sm text-slate-600 mb-4">
+              Deleting <span className="font-semibold text-slate-800">{deleteDialogUser.name}</span> will remove
+              their access immediately.
+            </p>
+
+            {deleteError && (
+              <div className="mb-4 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                {deleteError}
+              </div>
+            )}
+
+            {directReports.length > 0 && (
+              <div className="mb-4 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                This user currently manages team members. Choose a new manager so their reports aren’t orphaned.
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-slate-700">Reassign to</label>
+              <select
+                value={deleteReassign}
+                onChange={(e) => setDeleteReassign(e.target.value)}
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              >
+                <option value="">Select user {deleteRequiresReassign ? '(required)' : '(optional)'}</option>
+                {reassignCandidates.map((candidate) => (
+                  <option key={candidate.id} value={candidate.id}>
+                    {candidate.name} ({candidate.role})
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-slate-500">
+                Pick the manager who should inherit their approvals, expenses, and direct reports. Required when
+                deleting managers with active responsibilities.
+              </p>
+              {deleteRequiresReassign && reassignCandidates.length === 0 && (
+                <p className="text-xs text-red-600">
+                  No eligible managers or admins are available to take over. Add one before deleting this user.
+                </p>
+              )}
+            </div>
+
+            <div className="flex space-x-3 pt-6">
+              <button
+                type="button"
+                onClick={() => {
+                  setDeleteDialogUser(null);
+                  setDeleteReassign('');
+                  setDeleteError(null);
+                }}
+                className="flex-1 px-4 py-2 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 transition"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={submitDelete}
+                disabled={
+                  deleteSubmitting || (deleteRequiresReassign && (!deleteReassign || reassignCandidates.length === 0))
+                }
+                className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition disabled:opacity-60"
+              >
+                {deleteSubmitting ? 'Deleting...' : 'Delete User'}
+              </button>
+            </div>
           </div>
         </div>
       )}

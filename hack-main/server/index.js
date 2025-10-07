@@ -1136,11 +1136,115 @@ app.patch('/api/users/:id', authMiddleware, attachUser, assertRole(['admin']), a
 
 app.delete('/api/users/:id', authMiddleware, attachUser, assertRole(['admin']), async (req, res, next) => {
   const { id } = req.params;
+  const rawReassignTo = typeof req.body?.reassign_to === 'string' ? req.body.reassign_to.trim() : '';
+  const reassignTo = rawReassignTo.length > 0 ? rawReassignTo : null;
+
+  let connection;
 
   try {
-    await pool.query('DELETE FROM users WHERE id = ? AND company_id = ?', [id, req.user.company_id]);
+    connection = await pool.getConnection();
+    await connection.beginTransaction();
 
-    await pool.query(
+    const [[userRow]] = await connection.query(
+      'SELECT id, role FROM users WHERE id = ? AND company_id = ?',
+      [id, req.user.company_id]
+    );
+
+    if (!userRow) {
+      await connection.rollback();
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    if (reassignTo === id) {
+      await connection.rollback();
+      return res.status(400).json({ error: 'Cannot reassign resources to the user being deleted.' });
+    }
+
+    let reassignTarget = null;
+    if (reassignTo) {
+      const [[targetRow]] = await connection.query(
+        'SELECT id, role FROM users WHERE id = ? AND company_id = ?',
+        [reassignTo, req.user.company_id]
+      );
+
+      if (!targetRow) {
+        await connection.rollback();
+        return res.status(400).json({ error: 'Reassignment target was not found in this company.' });
+      }
+      reassignTarget = targetRow;
+    }
+
+    const [[directReportCount]] = await connection.query(
+      'SELECT COUNT(*) AS count FROM users WHERE manager_id = ? AND company_id = ?',
+      [id, req.user.company_id]
+    );
+    const directs = Number(directReportCount?.count ?? 0);
+
+    if (directs > 0) {
+      if (!reassignTarget) {
+        await connection.rollback();
+        return res.status(409).json({
+          error:
+            'This user manages active employees. Pick a new manager to transfer their direct reports to before deleting the account.',
+        });
+      }
+
+      if (reassignTarget.role === 'employee') {
+        await connection.rollback();
+        return res.status(409).json({
+          error: 'Direct reports can only be reassigned to a manager or admin.',
+        });
+      }
+
+      await connection.query(
+        'UPDATE users SET manager_id = ? WHERE manager_id = ? AND company_id = ?',
+        [reassignTarget.id, id, req.user.company_id]
+      );
+    }
+
+    const [[pendingApprovals]] = await connection.query(
+      "SELECT COUNT(*) AS count FROM approvals WHERE approver_id = ? AND status IN ('pending', 'escalated')",
+      [id]
+    );
+    const pendingApprovalCount = Number(pendingApprovals?.count ?? 0);
+
+    if (pendingApprovalCount > 0 && !reassignTarget) {
+      await connection.rollback();
+      return res.status(409).json({
+        error:
+          'This user has approvals awaiting their action. Select another approver to take over those approvals before deleting.',
+      });
+    }
+
+    const [[approvalCount]] = await connection.query('SELECT COUNT(*) AS count FROM approvals WHERE approver_id = ?', [
+      id,
+    ]);
+    const totalApprovals = Number(approvalCount?.count ?? 0);
+
+    if (totalApprovals > 0 && reassignTarget) {
+      await connection.query('UPDATE approvals SET approver_id = ? WHERE approver_id = ?', [reassignTarget.id, id]);
+    }
+
+    const [[ownedExpenses]] = await connection.query('SELECT COUNT(*) AS count FROM expenses WHERE user_id = ?', [id]);
+    const expenseCount = Number(ownedExpenses?.count ?? 0);
+
+    if (expenseCount > 0 && !reassignTarget) {
+      await connection.rollback();
+      return res.status(409).json({
+        error:
+          'This user has submitted expenses. Select a new owner for those expenses or archive them before deleting the account.',
+      });
+    }
+
+    if (expenseCount > 0 && reassignTarget) {
+      await connection.query('UPDATE expenses SET user_id = ? WHERE user_id = ?', [reassignTarget.id, id]);
+    }
+
+    await connection.query('DELETE FROM notifications WHERE user_id = ?', [id]);
+
+    await connection.query('DELETE FROM users WHERE id = ? AND company_id = ?', [id, req.user.company_id]);
+
+    await connection.query(
       'INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
       [
         crypto.randomUUID(),
@@ -1149,14 +1253,35 @@ app.delete('/api/users/:id', authMiddleware, attachUser, assertRole(['admin']), 
         'delete',
         'user',
         id,
-        JSON.stringify({}),
+        JSON.stringify({ reassigned_to: reassignTarget?.id ?? null }),
         currentSqlTimestamp(),
       ]
     );
 
-    res.json({ success: true });
+    await connection.commit();
+
+    res.json({ success: true, reassigned_to: reassignTarget?.id ?? null });
   } catch (error) {
+    if (connection) {
+      try {
+        await connection.rollback();
+      } catch {
+        // ignore rollback errors
+      }
+    }
+
+    if (error?.code === 'ER_ROW_IS_REFERENCED_2') {
+      return res.status(409).json({
+        error:
+          'This user is still referenced by other records. Provide a reassignment target or archive related data before deleting.',
+      });
+    }
+
     next(error);
+  } finally {
+    if (connection) {
+      connection.release();
+    }
   }
 });
 

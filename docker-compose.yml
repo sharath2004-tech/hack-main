@@ -1,0 +1,42 @@
+version: '3.8'
+services:
+  db:
+    image: mysql:8.0
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: expense_db
+      MYSQL_USER: expense_user
+      MYSQL_PASSWORD: expense_pass
+    ports:
+      - "3306:3306"
+    volumes:
+      - db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: ./hack-main/server
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_HOST: db
+      DB_USER: expense_user
+      DB_PASSWORD: expense_pass
+      DB_NAME: expense_db
+      JWT_SECRET: supersecret
+      ADMIN_SIGNUP_KEY: adminkey
+      EXCHANGE_RATE_API_KEY: "your_api_key_here"
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./hack-main/server/uploads:/app/uploads
+      - ./hack-main/server/.env:/app/.env:ro
+    restart: unless-stopped
+
+volumes:
+  db_data:
