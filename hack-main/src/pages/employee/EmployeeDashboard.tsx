@@ -448,6 +448,92 @@ export const EmployeeDashboard: React.FC = () => {
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
         <form onSubmit={handleSubmit} className="space-y-6">
           <div>
+            <label className="block text-sm font-medium text-slate-700 mb-2">
+              Receipt (Optional)
+            </label>
+            <input
+              ref={fileInputRef}
+              type="file"
+              onChange={(event) => {
+                const file = event.target.files?.[0] ?? null;
+                void analyzeReceiptFile(file);
+              }}
+              className="w-full px-4 py-3 border border-dashed border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            />
+            <p className="mt-1 text-xs text-slate-500">
+              Attach receipts in any format (PDF, image, etc.).
+            </p>
+            {analyzingReceipt && (
+              <p className="mt-2 text-sm text-blue-600 flex items-center gap-2">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Analyzing receipt for suggested values...
+              </p>
+            )}
+            {analysisError && !analyzingReceipt && (
+              <p className="mt-2 text-sm text-red-600">{analysisError}</p>
+            )}
+            {analysisResult && !analysisError && (
+              <div className="mt-4 border border-blue-100 bg-blue-50/60 rounded-lg p-4">
+                <div className="flex items-center gap-2 text-blue-700 font-medium">
+                  <Sparkles className="h-4 w-4" />
+                  Suggested values extracted from your receipt
+                </div>
+                <dl className="mt-3 grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
+                  {analysisResult.merchant && (
+                    <div>
+                      <dt className="font-semibold text-slate-800">Vendor</dt>
+                      <dd>{analysisResult.merchant}</dd>
+                    </div>
+                  )}
+                  {typeof analysisResult.amount === 'number' && (
+                    <div>
+                      <dt className="font-semibold text-slate-800">Amount</dt>
+                      <dd>
+                        {analysisResult.currency ? `${analysisResult.currency} ` : ''}
+                        {analysisResult.amount.toFixed(2)}
+                      </dd>
+                    </div>
+                  )}
+                  {analysisResult.date && (
+                    <div>
+                      <dt className="font-semibold text-slate-800">Date</dt>
+                      <dd>{analysisResult.date}</dd>
+                    </div>
+                  )}
+                  {analysisResult.category && (
+                    <div>
+                      <dt className="font-semibold text-slate-800">Expense Type</dt>
+                      <dd>{analysisResult.category}</dd>
+                    </div>
+                  )}
+                  {analysisResult.description && (
+                    <div className="sm:col-span-2">
+                      <dt className="font-semibold text-slate-800">Suggested Description</dt>
+                      <dd>{analysisResult.description}</dd>
+                    </div>
+                  )}
+                  {formattedConfidence && (
+                    <div>
+                      <dt className="font-semibold text-slate-800">Confidence</dt>
+                      <dd>{formattedConfidence}</dd>
+                    </div>
+                  )}
+                </dl>
+                {analysisResult.text && (
+                  <details className="mt-3 text-xs text-slate-600">
+                    <summary className="cursor-pointer select-none font-medium text-slate-700">
+                      View extracted receipt text
+                    </summary>
+                    <pre className="mt-2 whitespace-pre-wrap break-words bg-white/80 border border-slate-200 rounded p-3 text-[11px] leading-relaxed">
+                      {analysisResult.text}
+                    </pre>
+                  </details>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div>
             <label className="block text-sm font-medium text-slate-700 mb-2">Description</label>
             <input
               type="text"
@@ -593,92 +679,6 @@ export const EmployeeDashboard: React.FC = () => {
               className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               placeholder="Any additional notes..."
             />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-2">
-              Receipt (Optional)
-            </label>
-            <input
-              ref={fileInputRef}
-              type="file"
-              onChange={(event) => {
-                const file = event.target.files?.[0] ?? null;
-                void analyzeReceiptFile(file);
-              }}
-              className="w-full px-4 py-3 border border-dashed border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            />
-            <p className="mt-1 text-xs text-slate-500">
-              Attach receipts in any format (PDF, image, etc.).
-            </p>
-            {analyzingReceipt && (
-              <p className="mt-2 text-sm text-blue-600 flex items-center gap-2">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Analyzing receipt for suggested values...
-              </p>
-            )}
-            {analysisError && !analyzingReceipt && (
-              <p className="mt-2 text-sm text-red-600">{analysisError}</p>
-            )}
-            {analysisResult && !analysisError && (
-              <div className="mt-4 border border-blue-100 bg-blue-50/60 rounded-lg p-4">
-                <div className="flex items-center gap-2 text-blue-700 font-medium">
-                  <Sparkles className="h-4 w-4" />
-                  Suggested values extracted from your receipt
-                </div>
-                <dl className="mt-3 grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
-                  {analysisResult.merchant && (
-                    <div>
-                      <dt className="font-semibold text-slate-800">Vendor</dt>
-                      <dd>{analysisResult.merchant}</dd>
-                    </div>
-                  )}
-                  {typeof analysisResult.amount === 'number' && (
-                    <div>
-                      <dt className="font-semibold text-slate-800">Amount</dt>
-                      <dd>
-                        {analysisResult.currency ? `${analysisResult.currency} ` : ''}
-                        {analysisResult.amount.toFixed(2)}
-                      </dd>
-                    </div>
-                  )}
-                  {analysisResult.date && (
-                    <div>
-                      <dt className="font-semibold text-slate-800">Date</dt>
-                      <dd>{analysisResult.date}</dd>
-                    </div>
-                  )}
-                  {analysisResult.category && (
-                    <div>
-                      <dt className="font-semibold text-slate-800">Expense Type</dt>
-                      <dd>{analysisResult.category}</dd>
-                    </div>
-                  )}
-                  {analysisResult.description && (
-                    <div className="sm:col-span-2">
-                      <dt className="font-semibold text-slate-800">Suggested Description</dt>
-                      <dd>{analysisResult.description}</dd>
-                    </div>
-                  )}
-                  {formattedConfidence && (
-                    <div>
-                      <dt className="font-semibold text-slate-800">Confidence</dt>
-                      <dd>{formattedConfidence}</dd>
-                    </div>
-                  )}
-                </dl>
-                {analysisResult.text && (
-                  <details className="mt-3 text-xs text-slate-600">
-                    <summary className="cursor-pointer select-none font-medium text-slate-700">
-                      View extracted receipt text
-                    </summary>
-                    <pre className="mt-2 whitespace-pre-wrap break-words bg-white/80 border border-slate-200 rounded p-3 text-[11px] leading-relaxed">
-                      {analysisResult.text}
-                    </pre>
-                  </details>
-                )}
-              </div>
-            )}
           </div>
 
           <button

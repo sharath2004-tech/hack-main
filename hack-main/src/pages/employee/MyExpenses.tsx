@@ -9,6 +9,8 @@ export const MyExpenses: React.FC = () => {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [categories, setCategories] = useState<ExpenseCategory[]>([]);
   const [loading, setLoading] = useState(true);
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
 
   const loadData = useCallback(async () => {
     if (!user || !token) {
@@ -57,6 +59,10 @@ export const MyExpenses: React.FC = () => {
     }
   };
 
+  const totalPages = Math.ceil(expenses.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const paginatedExpenses = expenses.slice(startIndex, startIndex + itemsPerPage);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -98,7 +104,7 @@ export const MyExpenses: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
-              {expenses.map((expense) => (
+              {paginatedExpenses.map((expense) => (
                 <tr key={expense.id} className="hover:bg-slate-50 transition">
                   <td className="px-6 py-4">
                     <div className="text-sm font-medium text-slate-900">{expense.description}</div>
@@ -157,6 +163,33 @@ export const MyExpenses: React.FC = () => {
           </div>
         )}
       </div>
+
+      {expenses.length > 0 && totalPages > 1 && (
+        <div className="flex items-center justify-between mt-6">
+          <div className="text-sm text-slate-600">
+            Showing {startIndex + 1} to {Math.min(startIndex + itemsPerPage, expenses.length)} of {expenses.length} expenses
+          </div>
+          <div className="flex space-x-2">
+            <button
+              onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+              disabled={currentPage === 1}
+              className="px-3 py-2 text-sm border border-slate-300 rounded-lg hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Previous
+            </button>
+            <span className="px-3 py-2 text-sm">
+              Page {currentPage} of {totalPages}
+            </span>
+            <button
+              onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+              disabled={currentPage === totalPages}
+              className="px-3 py-2 text-sm border border-slate-300 rounded-lg hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

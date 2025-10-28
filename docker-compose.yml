@@ -35,7 +35,14 @@ services:
       - "4000:4000"
     volumes:
       - ./hack-main/server/uploads:/app/uploads
-      - ./hack-main/server/.env:/app/.env:ro
+    restart: unless-stopped
+
+  frontend:
+    build: ./hack-main
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
     restart: unless-stopped
 
 volumes:

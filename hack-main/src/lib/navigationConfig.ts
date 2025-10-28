@@ -18,6 +18,7 @@ export interface RoleMenuItem {
 export const ROLE_MENU_ITEMS: Record<RoleKey, RoleMenuItem[]> = {
   admin: [
     { id: 'user-management', label: 'Users', icon: Users },
+    { id: 'manager-dashboard', label: 'Approvals', icon: CheckSquare },
     { id: 'approval-rules', label: 'Approval Rules', icon: FileText },
     { id: 'audit-logs', label: 'Audit Logs', icon: FileText },
     { id: 'company-settings', label: 'Settings', icon: Settings },

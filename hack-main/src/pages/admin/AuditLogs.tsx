@@ -10,6 +10,8 @@ export const AuditLogs: React.FC = () => {
   const [users, setUsers] = useState<Array<Pick<User, 'id' | 'name'>>>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState({ action: '', entityType: '', userId: '' });
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
 
   const loadData = useCallback(async () => {
     if (!currentUser || !token) {
@@ -38,6 +40,10 @@ export const AuditLogs: React.FC = () => {
     loadData();
   }, [loadData]);
 
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filter]);
+
   const getActionColor = (action: string) => {
     switch (action) {
       case 'create':
@@ -56,6 +62,10 @@ export const AuditLogs: React.FC = () => {
         return 'bg-slate-100 text-slate-700';
     }
   };
+
+  const totalPages = Math.ceil(logs.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const paginatedLogs = logs.slice(startIndex, startIndex + itemsPerPage);
 
   if (loading) {
     return (
@@ -148,7 +158,7 @@ export const AuditLogs: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
-              {logs.map((log) => {
+              {paginatedLogs.map((log) => {
                 const owner = users.find((u) => u.id === log.user_id);
                 return (
                   <tr key={log.id} className="hover:bg-slate-50 transition">
@@ -194,6 +204,33 @@ export const AuditLogs: React.FC = () => {
           </div>
         )}
       </div>
+
+      {logs.length > 0 && totalPages > 1 && (
+        <div className="flex items-center justify-between mt-6">
+          <div className="text-sm text-slate-600">
+            Showing {startIndex + 1} to {Math.min(startIndex + itemsPerPage, logs.length)} of {logs.length} logs
+          </div>
+          <div className="flex space-x-2">
+            <button
+              onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+              disabled={currentPage === 1}
+              className="px-3 py-2 text-sm border border-slate-300 rounded-lg hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Previous
+            </button>
+            <span className="px-3 py-2 text-sm">
+              Page {currentPage} of {totalPages}
+            </span>
+            <button
+              onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+              disabled={currentPage === totalPages}
+              className="px-3 py-2 text-sm border border-slate-300 rounded-lg hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -1589,16 +1589,31 @@ app.get('/api/audit-logs/users', authMiddleware, attachUser, assertRole(['admin'
 
 app.get('/api/approvals/pending', authMiddleware, attachUser, assertRole(['manager', 'admin']), async (req, res, next) => {
   try {
-    const [rows] = await pool.query(
-      `SELECT a.*, e.description, e.date, e.category_id, e.paid_by, e.amount, e.currency, e.remarks, e.status AS expense_status,
-              e.user_id AS requester_id, u.name AS requester_name
-         FROM approvals a
-         JOIN expenses e ON a.expense_id = e.id
-         JOIN users u ON e.user_id = u.id
-        WHERE a.approver_id = ?
-        ORDER BY a.created_at DESC`,
-      [req.user.id]
-    );
+    let query, params;
+    
+    if (req.user.role === 'admin') {
+      // Admins see all company expenses that need approval
+      query = `SELECT a.*, e.description, e.date, e.category_id, e.paid_by, e.amount, e.currency, e.remarks, e.status AS expense_status, e.receipt_url,
+                      e.user_id AS requester_id, u.name AS requester_name
+               FROM approvals a
+               JOIN expenses e ON a.expense_id = e.id
+               JOIN users u ON e.user_id = u.id
+               WHERE e.company_id = ?
+               ORDER BY a.created_at DESC`;
+      params = [req.user.company_id];
+    } else {
+      // Managers see only their assigned approvals
+      query = `SELECT a.*, e.description, e.date, e.category_id, e.paid_by, e.amount, e.currency, e.remarks, e.status AS expense_status, e.receipt_url,
+                      e.user_id AS requester_id, u.name AS requester_name
+               FROM approvals a
+               JOIN expenses e ON a.expense_id = e.id
+               JOIN users u ON e.user_id = u.id
+               WHERE a.approver_id = ?
+               ORDER BY a.created_at DESC`;
+      params = [req.user.id];
+    }
+    
+    const [rows] = await pool.query(query, params);
 
     res.json({
       approvals: rows.map((row) => ({
@@ -1618,6 +1633,7 @@ app.get('/api/approvals/pending', authMiddleware, attachUser, assertRole(['manag
           currency: row.currency,
           remarks: row.remarks,
           status: row.expense_status,
+          receipt_url: row.receipt_url,
         },
         requester: {
           id: row.requester_id,

@@ -1,10 +1,13 @@
-import { CheckCircle, XCircle } from 'lucide-react';
+import { CheckCircle, Search, XCircle } from 'lucide-react';
 import React, { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { request } from '../../lib/api';
 import { Approval, Expense, ExpenseCategory, User } from '../../types';
 
-type ApprovalWithDetails = Approval & { expense: Expense; requester: Pick<User, 'id' | 'name'> };
+type ApprovalWithDetails = Approval & { 
+  expense: Expense & { receipt_url?: string }; 
+  requester: Pick<User, 'id' | 'name'> 
+};
 
 export const ManagerDashboard: React.FC = () => {
   const { user: currentUser, token } = useAuth();
@@ -13,6 +16,9 @@ export const ManagerDashboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [selectedApproval, setSelectedApproval] = useState<ApprovalWithDetails | null>(null);
   const [decisionComments, setDecisionComments] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [searchTerm, setSearchTerm] = useState('');
+  const itemsPerPage = 10;
 
   const loadData = useCallback(async () => {
     if (!currentUser || !token) {
@@ -58,6 +64,14 @@ export const ManagerDashboard: React.FC = () => {
     }
   };
 
+  const filteredApprovals = approvals.filter(approval => 
+    approval.requester?.name.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+  
+  const totalPages = Math.ceil(filteredApprovals.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const paginatedApprovals = filteredApprovals.slice(startIndex, startIndex + itemsPerPage);
+
   const getCategoryName = (categoryId?: string) => {
     return categories.find((c) => c.id === categoryId)?.name || '-';
   };
@@ -90,6 +104,22 @@ export const ManagerDashboard: React.FC = () => {
         <p className="text-slate-600 mt-1">Review and approve expense requests</p>
       </div>
 
+      <div className="mb-6">
+        <div className="relative max-w-md">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 w-4 h-4" />
+          <input
+            type="text"
+            placeholder="Search by request owner..."
+            value={searchTerm}
+            onChange={(e) => {
+              setSearchTerm(e.target.value);
+              setCurrentPage(1);
+            }}
+            className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          />
+        </div>
+      </div>
+
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
@@ -119,7 +149,7 @@ export const ManagerDashboard: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
-              {approvals.map((approval) => (
+              {paginatedApprovals.map((approval) => (
                 <tr key={approval.id} className="hover:bg-slate-50 transition">
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="text-sm font-medium text-slate-900">{approval.requester?.name}</div>
@@ -170,6 +200,14 @@ export const ManagerDashboard: React.FC = () => {
           </table>
         </div>
 
+        {filteredApprovals.length === 0 && approvals.length > 0 && (
+          <div className="text-center py-12">
+            <Search className="w-12 h-12 text-slate-400 mx-auto mb-4" />
+            <h3 className="text-lg font-medium text-slate-900 mb-2">No matching approvals</h3>
+            <p className="text-slate-600">Try adjusting your search term</p>
+          </div>
+        )}
+
         {approvals.length === 0 && (
           <div className="text-center py-12">
             <CheckCircle className="w-12 h-12 text-slate-400 mx-auto mb-4" />
@@ -178,6 +216,34 @@ export const ManagerDashboard: React.FC = () => {
           </div>
         )}
       </div>
+
+      {filteredApprovals.length > 0 && totalPages > 1 && (
+        <div className="flex items-center justify-between mt-6">
+          <div className="text-sm text-slate-600">
+            Showing {startIndex + 1} to {Math.min(startIndex + itemsPerPage, filteredApprovals.length)} of {filteredApprovals.length} approvals
+            {searchTerm && ` (filtered from ${approvals.length} total)`}
+          </div>
+          <div className="flex space-x-2">
+            <button
+              onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+              disabled={currentPage === 1}
+              className="px-3 py-2 text-sm border border-slate-300 rounded-lg hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Previous
+            </button>
+            <span className="px-3 py-2 text-sm">
+              Page {currentPage} of {totalPages}
+            </span>
+            <button
+              onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+              disabled={currentPage === totalPages}
+              className="px-3 py-2 text-sm border border-slate-300 rounded-lg hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      )}
 
       {selectedApproval && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
@@ -227,6 +293,20 @@ export const ManagerDashboard: React.FC = () => {
                 <div>
                   <div className="text-xs font-medium text-slate-500 uppercase mb-1">Remarks</div>
                   <div className="text-sm text-slate-900">{selectedApproval.expense.remarks}</div>
+                </div>
+              )}
+
+              {selectedApproval.expense.receipt_url && (
+                <div>
+                  <div className="text-xs font-medium text-slate-500 uppercase mb-1">Receipt</div>
+                  <a
+                    href={`${import.meta.env.VITE_API_URL}${selectedApproval.expense.receipt_url}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-600 hover:text-blue-800 text-sm font-medium underline"
+                  >
+                    View Receipt
+                  </a>
                 </div>
               )}
             </div>
