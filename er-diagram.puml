@@ -1,0 +1,119 @@
+@startuml ExpenseTracker_ER_Diagram
+
+!define ENTITY class
+!define PK <b><color:red>
+!define FK <b><color:blue>
+
+ENTITY COMPANIES {
+  PK id : CHAR(36)
+  --
+  name : VARCHAR(255)
+  country : VARCHAR(100)
+  default_currency : VARCHAR(10)
+  created_at : TIMESTAMP
+}
+
+ENTITY USERS {
+  PK id : CHAR(36)
+  --
+  FK company_id : CHAR(36)
+  name : VARCHAR(255)
+  email : VARCHAR(255)
+  password_hash : VARCHAR(255)
+  role : ENUM
+  FK manager_id : CHAR(36)
+  created_at : TIMESTAMP
+}
+
+ENTITY EXPENSE_CATEGORIES {
+  PK id : CHAR(36)
+  --
+  FK company_id : CHAR(36)
+  name : VARCHAR(100)
+  created_at : TIMESTAMP
+}
+
+ENTITY EXPENSES {
+  PK id : CHAR(36)
+  --
+  FK company_id : CHAR(36)
+  FK user_id : CHAR(36)
+  description : VARCHAR(255)
+  date : DATE
+  FK category_id : CHAR(36)
+  paid_by : VARCHAR(100)
+  amount : DECIMAL(12,2)
+  currency : VARCHAR(10)
+  remarks : TEXT
+  receipt_url : VARCHAR(500)
+  status : ENUM
+  created_at : TIMESTAMP
+  updated_at : TIMESTAMP
+}
+
+ENTITY APPROVALS {
+  PK id : CHAR(36)
+  --
+  FK expense_id : CHAR(36)
+  FK approver_id : CHAR(36)
+  sequence_order : INT
+  status : ENUM
+  comments : TEXT
+  created_at : TIMESTAMP
+  approved_at : TIMESTAMP
+}
+
+ENTITY APPROVAL_RULES {
+  PK id : CHAR(36)
+  --
+  FK company_id : CHAR(36)
+  rule_name : VARCHAR(255)
+  description : TEXT
+  approvers : JSON
+  approver_sequence : JSON
+  rule_type : ENUM
+  min_approval_percentage : INT
+  specific_approver_required : CHAR(36)
+  created_at : TIMESTAMP
+}
+
+ENTITY NOTIFICATIONS {
+  PK id : CHAR(36)
+  --
+  FK user_id : CHAR(36)
+  title : VARCHAR(255)
+  message : TEXT
+  type : ENUM
+  related_entity_id : CHAR(36)
+  read : TINYINT(1)
+  created_at : TIMESTAMP
+}
+
+ENTITY AUDIT_LOGS {
+  PK id : CHAR(36)
+  --
+  FK company_id : CHAR(36)
+  FK user_id : CHAR(36)
+  action : VARCHAR(50)
+  entity_type : VARCHAR(100)
+  entity_id : CHAR(36)
+  details : JSON
+  created_at : TIMESTAMP
+}
+
+' Relationships
+COMPANIES ||--o{ USERS : "has"
+COMPANIES ||--o{ EXPENSE_CATEGORIES : "has"
+COMPANIES ||--o{ APPROVAL_RULES : "has"
+COMPANIES ||--o{ AUDIT_LOGS : "has"
+
+USERS ||--o{ EXPENSES : "submits"
+USERS ||--o{ APPROVALS : "approves"
+USERS ||--o{ NOTIFICATIONS : "receives"
+USERS ||--o{ AUDIT_LOGS : "performs"
+USERS ||--o{ USERS : "manages"
+
+EXPENSES ||--o{ APPROVALS : "requires"
+EXPENSE_CATEGORIES ||--o{ EXPENSES : "categorizes"
+
+@enduml

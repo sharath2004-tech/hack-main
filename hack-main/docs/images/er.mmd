@@ -1,0 +1,116 @@
+%% Mermaid ER diagram for Expense Management Platform
+%% Save as PNG via mermaid-cli (see instructions below)
+
+erDiagram
+  COMPANIES {
+    char_36 id PK
+    string name
+    string country
+    string default_currency
+    timestamp created_at
+  }
+
+  USERS {
+    char_36 id PK
+    char_36 company_id FK
+    string name
+    string email
+    string password_hash
+    string role
+    char_36 manager_id
+    timestamp created_at
+  }
+
+  EXPENSE_CATEGORIES {
+    char_36 id PK
+    char_36 company_id FK
+    string name
+    timestamp created_at
+  }
+
+  EXPENSES {
+    char_36 id PK
+    char_36 company_id FK
+    char_36 user_id FK
+    string description
+    date date
+    char_36 category_id FK
+    string paid_by
+    decimal amount
+    string currency
+    text remarks
+    string receipt_url
+    string ocr_vendor
+    decimal ocr_amount
+    string ocr_currency
+    date ocr_date
+    decimal ocr_confidence
+    text ocr_text
+    string status
+    timestamp created_at
+    timestamp updated_at
+  }
+
+  APPROVALS {
+    char_36 id PK
+    char_36 expense_id FK
+    char_36 approver_id FK
+    int sequence_order
+    string status
+    text comments
+    timestamp created_at
+    timestamp approved_at
+  }
+
+  NOTIFICATIONS {
+    char_36 id PK
+    char_36 user_id FK
+    string title
+    text message
+    string type
+    char_36 related_entity_id
+    tinyint read
+    timestamp created_at
+  }
+
+  APPROVAL_RULES {
+    char_36 id PK
+    char_36 company_id FK
+    string rule_name
+    text description
+    json approvers
+    json approver_sequence
+    string rule_type
+    int min_approval_percentage
+    char_36 specific_approver_required
+    timestamp created_at
+  }
+
+  AUDIT_LOGS {
+    char_36 id PK
+    char_36 company_id FK
+    char_36 user_id FK
+    string action
+    string entity_type
+    char_36 entity_id
+    json details
+    timestamp created_at
+  }
+
+  %% Relationships
+  COMPANIES ||--o{ USERS : has
+  COMPANIES ||--o{ EXPENSE_CATEGORIES : has
+  COMPANIES ||--o{ EXPENSES : has
+  COMPANIES ||--o{ APPROVAL_RULES : has
+  COMPANIES ||--o{ AUDIT_LOGS : has
+
+  USERS ||--o{ EXPENSES : submits
+  USERS ||--o{ APPROVALS : approves
+  USERS ||--o{ NOTIFICATIONS : receives
+  USERS ||--o{ AUDIT_LOGS : acts
+  USERS ||--o{ USERS : manages
+
+  EXPENSE_CATEGORIES ||--o{ EXPENSES : categorizes
+  EXPENSES ||--o{ APPROVALS : generates
+
+  %% Optional note: NOTIFICATIONS.related_entity_id may reference different entities (expense/approval)
