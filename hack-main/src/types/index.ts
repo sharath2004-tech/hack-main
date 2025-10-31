@@ -66,9 +66,6 @@ export interface Expense {
   currency: string;
   remarks?: string;
   receipt_url?: string;
-  ocr_vendor?: string;
-  ocr_amount?: number;
-  ocr_date?: string;
   status: 'pending' | 'approved' | 'rejected';
   created_at: string;
   updated_at: string;

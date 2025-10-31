@@ -892,19 +892,18 @@ app.post('/api/expenses', authMiddleware, attachUser, uploadReceipt.single('rece
   }
 
   const receiptUrl = receiptFile ? `/uploads/receipts/${receiptFile.filename}` : null;
+  // We no longer persist OCR-specific columns on expenses. Any OCR happens
+  // client-side via /api/receipts/analyze and is used only to prefill fields.
+  // Keep a lightweight server-side analysis for future heuristics if needed,
+  // but do not store the results separately.
   let ocrAnalysis = null;
-
   if (receiptFile) {
     try {
       ocrAnalysis = await analyzeReceipt(receiptDiskPath, receiptFile.mimetype);
     } catch (error) {
-      console.warn('Failed to analyze receipt for OCR suggestions', error);
+      console.warn('Receipt analysis skipped (non-blocking):', error);
     }
   }
-
-  const ocrAmount = typeof ocrAnalysis?.amount === 'number' ? Number(ocrAnalysis.amount.toFixed(2)) : null;
-  const ocrConfidence =
-    typeof ocrAnalysis?.confidence === 'number' ? Number(ocrAnalysis.confidence.toFixed(2)) : null;
 
   const connection = await pool.getConnection();
   try {
@@ -914,8 +913,8 @@ app.post('/api/expenses', authMiddleware, attachUser, uploadReceipt.single('rece
     const now = currentSqlTimestamp();
 
     await connection.query(
-      `INSERT INTO expenses (id, company_id, user_id, description, date, category_id, paid_by, amount, currency, remarks, receipt_url, ocr_vendor, ocr_amount, ocr_currency, ocr_date, ocr_confidence, ocr_text, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO expenses (id, company_id, user_id, description, date, category_id, paid_by, amount, currency, remarks, receipt_url, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         expenseId,
         req.user.company_id,
@@ -928,12 +927,6 @@ app.post('/api/expenses', authMiddleware, attachUser, uploadReceipt.single('rece
         currency,
         remarks ? remarks : null,
         receiptUrl,
-        ocrAnalysis?.merchant || null,
-        ocrAmount,
-        ocrAnalysis?.currency || null,
-        ocrAnalysis?.date || null,
-        ocrConfidence,
-        ocrAnalysis?.text || null,
         'pending',
         now,
         now,
@@ -996,18 +989,7 @@ app.post('/api/expenses', authMiddleware, attachUser, uploadReceipt.single('rece
         'create',
         'expense',
         expenseId,
-        JSON.stringify({
-          amount: normalizedAmount,
-          description,
-          receipt_url: receiptUrl,
-          ocr: {
-            merchant: ocrAnalysis?.merchant || null,
-            amount: ocrAmount,
-            currency: ocrAnalysis?.currency || null,
-            date: ocrAnalysis?.date || null,
-            confidence: ocrConfidence,
-          },
-        }),
+        JSON.stringify({ amount: normalizedAmount, description, receipt_url: receiptUrl }),
         now,
       ]
     );
@@ -1027,17 +1009,10 @@ app.post('/api/expenses', authMiddleware, attachUser, uploadReceipt.single('rece
         currency,
         remarks: remarks ? remarks : null,
         receipt_url: receiptUrl,
-        ocr_vendor: ocrAnalysis?.merchant || null,
-        ocr_amount: ocrAmount,
-        ocr_currency: ocrAnalysis?.currency || null,
-        ocr_date: ocrAnalysis?.date || null,
-        ocr_confidence: ocrConfidence,
-        ocr_text: ocrAnalysis?.text || null,
         status: 'pending',
         created_at: now,
         updated_at: now,
       },
-      ocr_analysis: ocrAnalysis,
     });
   } catch (error) {
     await connection.rollback();
@@ -1050,9 +1025,14 @@ app.post('/api/expenses', authMiddleware, attachUser, uploadReceipt.single('rece
 
 app.get('/api/expenses/mine', authMiddleware, attachUser, async (req, res, next) => {
   try {
-    const [rows] = await pool.query('SELECT * FROM expenses WHERE user_id = ? ORDER BY created_at DESC', [
-      req.user.id,
-    ]);
+    const [rows] = await pool.query(
+      `SELECT id, company_id, user_id, description, date, category_id, paid_by, amount, currency, remarks, receipt_url, status, created_at, updated_at
+         FROM expenses
+        WHERE user_id = ?
+        ORDER BY created_at DESC`,
+      [req.user.id]
+    );
+
     res.json({ expenses: rows });
   } catch (error) {
     next(error);

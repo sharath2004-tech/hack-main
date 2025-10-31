@@ -28,12 +28,6 @@ const loadEnv = () => {
 const ensureExpenseColumns = async (connection, database) => {
   const columns = [
     ['receipt_url', 'VARCHAR(500) NULL'],
-    ['ocr_vendor', 'VARCHAR(255) NULL'],
-    ['ocr_amount', 'DECIMAL(12,2) NULL'],
-    ['ocr_currency', 'VARCHAR(10) NULL'],
-    ['ocr_date', 'DATE NULL'],
-    ['ocr_confidence', 'DECIMAL(5,2) NULL'],
-    ['ocr_text', 'LONGTEXT NULL'],
   ];
 
   for (const [name, definition] of columns) {
