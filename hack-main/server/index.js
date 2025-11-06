@@ -12,6 +12,7 @@ import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { convertCurrency, getActiveCurrencyProvider, listSupportedCurrencies } from './lib/currencyRates.js';
+import { closeMongo, getMongoDb } from './lib/mongo.js';
 import { analyzeReceipt, shutdownWorker } from './lib/receiptParser.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -691,12 +692,32 @@ const evaluateRulesOutcome = (rules, approvalRecords) => {
 };
 
 app.get('/health', async (_req, res) => {
+  const result = { status: 'ok', mysql: 'unknown', mongo: 'not_configured' };
   try {
     await pool.query('SELECT 1');
-    res.json({ status: 'ok' });
+    result.mysql = 'ok';
   } catch (error) {
-    res.status(500).json({ error: 'Database connection failed' });
+    result.status = 'degraded';
+    result.mysql = 'down';
   }
+
+  if (process.env.MONGO_URI) {
+    try {
+      const db = await getMongoDb();
+      if (db) {
+        await db.command({ ping: 1 });
+        result.mongo = 'ok';
+      } else {
+        result.mongo = 'skipped';
+      }
+    } catch (_err) {
+      result.status = 'degraded';
+      result.mongo = 'down';
+    }
+  }
+
+  const httpCode = result.status === 'ok' ? 200 : 207; // 207 Multi-Status for partial health
+  res.status(httpCode).json(result);
 });
 
 const ALLOWED_SIGNUP_ROLES = new Set(['admin', 'manager', 'employee']);
@@ -995,6 +1016,23 @@ app.post('/api/expenses', authMiddleware, attachUser, uploadReceipt.single('rece
     );
 
     await connection.commit();
+
+    // Optionally persist unstructured OCR content to Mongo for later search/audit
+    try {
+      const mongo = await getMongoDb();
+      if (mongo && ocrAnalysis) {
+        await mongo.collection('receipt_analyses').insertOne({
+          expense_id: expenseId,
+          company_id: req.user.company_id,
+          user_id: req.user.id,
+          receipt_url: receiptUrl,
+          analysis: ocrAnalysis,
+          created_at: new Date(),
+        });
+      }
+    } catch (e) {
+      console.warn('Skipping Mongo persistence for receipt analysis:', e?.message || e);
+    }
 
     res.status(201).json({
       expense: {
@@ -1760,6 +1798,11 @@ const gracefulShutdown = async (signal) => {
       await shutdownWorker();
     } catch (error) {
       console.warn('Failed to stop OCR worker cleanly', error);
+    }
+    try {
+      await closeMongo();
+    } catch (error) {
+      console.warn('Failed to close Mongo connection', error);
     }
     process.exit(0);
   });
