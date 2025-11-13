@@ -132,9 +132,34 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         throw new Error('API is not configured. Set VITE_API_URL in your .env file.');
       }
 
+      // Prepare payload for admin signup
+      const payload: {
+        name: string;
+        email: string;
+        password: string;
+        country: string;
+        role: User['role'];
+        adminSignupKey?: string;
+        companyName?: string;
+        defaultCurrency?: string;
+      } = {
+        name,
+        email,
+        password,
+        role,
+        country,
+      };
+
+      // For admin signup, add required fields
+      if (role === 'admin') {
+        payload.adminSignupKey = adminKey;
+        payload.companyName = `${name}'s Company`; // Default company name
+        payload.defaultCurrency = 'USD'; // Default currency
+      }
+
       const data = await request<{ token: string; user: User }>('/api/auth/signup', null, {
         method: 'POST',
-        body: JSON.stringify({ name, email, password, country, role, adminKey }),
+        body: JSON.stringify(payload),
       });
 
       persistToken(data.token);

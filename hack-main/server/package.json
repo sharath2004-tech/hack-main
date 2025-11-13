@@ -1,32 +1,22 @@
-{
-  "name": "expense-management-backend",
-  "version": "0.1.0",
-  "private": true,
+﻿{
+  "name": "expense-management-mongodb-server",
+  "version": "1.0.0",
   "type": "module",
+  "description": "MongoDB backend for Expense Management System",
   "main": "index.js",
   "scripts": {
-    "dev": "nodemon index.js",
     "start": "node index.js",
-    "setup-db": "node scripts/setup-db.js"
+    "dev": "node --watch index.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
-    "expense-management-backend": "file:",
     "express": "^4.19.2",
     "jsonwebtoken": "^9.0.2",
-    "mongodb": "^6.6.0",
+    "mongoose": "^8.3.0",
     "morgan": "^1.10.0",
-    "multer": "^2.0.2",
-    "mysql2": "^3.11.0",
-    "node-fetch": "^3.3.2",
-    "pdf-parse": "^1.1.1",
-    "pdf2json": "^3.2.2",
-    "tesseract.js": "^5.1.1",
-    "vite-react-typescript-starter": "file:.."
-  },
-  "devDependencies": {
-    "nodemon": "^3.1.4"
+    "multer": "^1.4.5-lts.1",
+    "tesseract.js": "^5.0.5"
   }
 }
