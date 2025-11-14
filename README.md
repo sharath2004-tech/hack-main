@@ -346,7 +346,7 @@ This project is licensed under the MIT License.
 
 ## 📧 Support
 
-For support, email 2004sharath2004@gmail.com or open an issue on GitHub.
+For support, email 2004sharath@gmail.com or open an issue on GitHub.
 
 ---
 
