@@ -1,4 +1,4 @@
-import { DollarSign, Loader2, Sparkles } from 'lucide-react';
+import { IndianRupee, Loader2, Sparkles } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { request } from '../../lib/api';
@@ -35,13 +35,11 @@ export const EmployeeDashboard: React.FC = () => {
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [analysisResult, setAnalysisResult] = useState<ReceiptAnalysis | null>(null);
   const [companyInfo, setCompanyInfo] = useState<Company | null>(null);
-  const [companyCurrency, setCompanyCurrency] = useState<string>('USD');
-  const [conversionQuote, setConversionQuote] = useState<CurrencyQuote | null>(null);
-  const [conversionLoading, setConversionLoading] = useState(false);
-  const [conversionError, setConversionError] = useState<string | null>(null);
+  const [companyCurrency, setCompanyCurrency] = useState<string>('INR');
+
   const [autoConversionInfo, setAutoConversionInfo] = useState<AutoConversionInfo | null>(null);
   const defaultDateRef = useRef(new Date().toISOString().split('T')[0]);
-  const defaultCurrencyRef = useRef<string>('USD');
+  const defaultCurrencyRef = useRef<string>('INR');
   const [formData, setFormData] = useState<ExpenseFormState>({
     description: '',
     date: defaultDateRef.current,
@@ -52,7 +50,7 @@ export const EmployeeDashboard: React.FC = () => {
     remarks: '',
   });
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const conversionTimeoutRef = useRef<number | null>(null);
+
 
   const loadCategories = useCallback(async () => {
     if (!user || !token) return;
@@ -108,14 +106,8 @@ export const EmployeeDashboard: React.FC = () => {
     setReceiptFile(null);
     setAnalysisResult(null);
     setAnalysisError(null);
-    setConversionQuote(null);
-    setConversionError(null);
-    setConversionLoading(false);
-  setAutoConversionInfo(null);
-    if (conversionTimeoutRef.current !== null) {
-      window.clearTimeout(conversionTimeoutRef.current);
-      conversionTimeoutRef.current = null;
-    }
+    setAutoConversionInfo(null);
+
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
@@ -281,110 +273,8 @@ export const EmployeeDashboard: React.FC = () => {
     };
   }, [analysisResult, companyCurrency, token]);
 
-  useEffect(() => {
-    if (!token) {
-      setConversionQuote(null);
-      setConversionError(null);
-      setConversionLoading(false);
-      if (conversionTimeoutRef.current !== null) {
-        window.clearTimeout(conversionTimeoutRef.current);
-        conversionTimeoutRef.current = null;
-      }
-      return;
-    }
-
-    const amountValue = Number(formData.amount);
-
-    if (!formData.amount || Number.isNaN(amountValue) || amountValue <= 0) {
-      setConversionQuote(null);
-      setConversionError(null);
-      setConversionLoading(false);
-      setAutoConversionInfo(null);
-      if (conversionTimeoutRef.current !== null) {
-        window.clearTimeout(conversionTimeoutRef.current);
-        conversionTimeoutRef.current = null;
-      }
-      return;
-    }
-
-    const fromCurrency = formData.currency.toUpperCase();
-    const toCurrency = companyCurrency.toUpperCase();
-
-    if (fromCurrency === toCurrency) {
-      setConversionQuote(null);
-      setConversionError(null);
-      setConversionLoading(false);
-      setAutoConversionInfo(null);
-      if (conversionTimeoutRef.current !== null) {
-        window.clearTimeout(conversionTimeoutRef.current);
-        conversionTimeoutRef.current = null;
-      }
-      return;
-    }
-
-    if (conversionTimeoutRef.current !== null) {
-      window.clearTimeout(conversionTimeoutRef.current);
-    }
-
-    setConversionLoading(true);
-    setConversionError(null);
-
-    let cancelled = false;
-    const timeoutId = window.setTimeout(async () => {
-      try {
-        const quote = await fetchCurrencyConversion(token, fromCurrency, toCurrency, amountValue);
-        if (!cancelled) {
-          setFormData((prev) => {
-            const nextAmount = quote.converted_amount.toFixed(2);
-            if (
-              prev.currency.toUpperCase() === toCurrency &&
-              Number(prev.amount) === Number(nextAmount)
-            ) {
-              return prev;
-            }
-
-            return {
-              ...prev,
-              amount: nextAmount,
-              currency: toCurrency,
-            };
-          });
-
-          setAutoConversionInfo({
-            fromCurrency,
-            toCurrency,
-            originalAmount: amountValue,
-            convertedAmount: quote.converted_amount,
-            rate: quote.rate,
-            updatedAt: quote.updated_at,
-          });
-
-          setConversionQuote(null);
-          setConversionError(null);
-        }
-      } catch (error) {
-        if (!cancelled) {
-          const apiError = error as { message?: string } | undefined;
-          setConversionQuote(null);
-          setConversionError(apiError?.message || 'Unable to convert amount right now.');
-          setAutoConversionInfo(null);
-        }
-      } finally {
-        if (!cancelled) {
-          setConversionLoading(false);
-          conversionTimeoutRef.current = null;
-        }
-      }
-    }, 450);
-
-    conversionTimeoutRef.current = timeoutId;
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timeoutId);
-      conversionTimeoutRef.current = null;
-    };
-  }, [formData.amount, formData.currency, companyCurrency, token]);
+  // Removed automatic currency conversion on amount change
+  // Users should enter amount in the currency they select
 
   const formattedConfidence = useMemo(() => {
     if (analysisResult?.confidence === undefined || analysisResult?.confidence === null) {
@@ -588,13 +478,19 @@ export const EmployeeDashboard: React.FC = () => {
                 <option value="Credit Card">Credit Card</option>
                 <option value="Debit Card">Debit Card</option>
                 <option value="Bank Transfer">Bank Transfer</option>
+                <option value="UPI">UPI</option>
+                <option value="Net Banking">Net Banking</option>
+                <option value="Cheque">Cheque</option>
+                <option value="Company Card">Company Card</option>
+                <option value="Petty Cash">Petty Cash</option>
+                <option value="Other">Other</option>
               </select>
             </div>
 
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-2">Amount</label>
               <div className="relative">
-                <DollarSign className="absolute left-3 top-3.5 w-5 h-5 text-slate-400" />
+                <IndianRupee className="absolute left-3 top-3.5 w-5 h-5 text-slate-400" />
                 <input
                   type="number"
                   step="0.01"
@@ -617,47 +513,23 @@ export const EmployeeDashboard: React.FC = () => {
               required
               className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             >
-              <option value="USD">USD</option>
-              <option value="EUR">EUR</option>
-              <option value="GBP">GBP</option>
-              <option value="INR">INR</option>
-              <option value="CAD">CAD</option>
-              <option value="AUD">AUD</option>
+              <option value="INR">INR - Indian Rupee</option>
+              <option value="USD">USD - US Dollar</option>
+              <option value="EUR">EUR - Euro</option>
+              <option value="GBP">GBP - British Pound</option>
+              <option value="CAD">CAD - Canadian Dollar</option>
+              <option value="AUD">AUD - Australian Dollar</option>
+              <option value="JPY">JPY - Japanese Yen</option>
+              <option value="CHF">CHF - Swiss Franc</option>
+              <option value="CNY">CNY - Chinese Yuan</option>
+              <option value="SGD">SGD - Singapore Dollar</option>
+              <option value="HKD">HKD - Hong Kong Dollar</option>
+              <option value="NZD">NZD - New Zealand Dollar</option>
             </select>
             <p className="mt-2 text-xs text-slate-500">
               Company default currency:{' '}
               <span className="font-semibold text-slate-700">{companyCurrency}</span>
             </p>
-            {formData.currency.toUpperCase() !== companyCurrency.toUpperCase() && (
-              <div className="mt-1">
-                {conversionLoading && (
-                  <p className="flex items-center gap-2 text-xs text-blue-600">
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    Calculating approximate amount in {companyCurrency}...
-                  </p>
-                )}
-                {conversionQuote && !conversionLoading && (
-                  <div className="text-xs text-slate-600 space-y-0.5">
-                    <p>
-                      ≈ {conversionQuote.target}{' '}
-                      {conversionQuote.converted_amount.toFixed(2)}{' '}
-                      <span className="text-slate-400">
-                        (rate {conversionQuote.rate.toFixed(4)} · updated{' '}
-                        {new Date(conversionQuote.updated_at).toLocaleString()})
-                      </span>
-                    </p>
-                    {conversionQuote.provider && (
-                      <p className="text-[11px] text-slate-400">
-                        Rates by {conversionQuote.provider}
-                      </p>
-                    )}
-                  </div>
-                )}
-                {conversionError && !conversionLoading && (
-                  <p className="text-xs text-red-600">{conversionError}</p>
-                )}
-              </div>
-            )}
             {autoConversionInfo && (
               <div className="mt-2 text-xs text-green-600">
                 Converted {autoConversionInfo.fromCurrency}{' '}

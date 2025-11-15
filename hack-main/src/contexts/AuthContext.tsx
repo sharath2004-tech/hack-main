@@ -153,8 +153,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // For admin signup, add required fields
       if (role === 'admin') {
         payload.adminSignupKey = adminKey;
-        payload.companyName = `${name}'s Company`; // Default company name
-        payload.defaultCurrency = 'USD'; // Default currency
+        payload.companyName = `${name}'s Company`;
+        payload.defaultCurrency = 'USD';
       }
 
       const data = await request<{ token: string; user: User }>('/api/auth/signup', null, {

@@ -64,6 +64,7 @@ export const ApprovalRules: React.FC = () => {
         request<{ users: User[] }>('/api/users', token),
       ]);
 
+      console.log('Users data:', usersData.users);
       setRules(rulesData.rules);
       setUsers(usersData.users.filter((user) => ['admin', 'manager'].includes(user.role)));
     } catch (error) {
@@ -170,17 +171,10 @@ export const ApprovalRules: React.FC = () => {
 
   const handleEdit = (rule: ApprovalRule) => {
     setEditingRule(rule);
-    const orderedApprovers = Array.isArray(rule.approver_sequence) && rule.approver_sequence.length > 0
-      ? [...rule.approver_sequence]
-          .sort((a, b) => a.order - b.order)
-          .map((step) => step.approver_id)
-      : Array.isArray(rule.approvers)
-      ? rule.approvers
-      : [];
     setFormData({
       rule_name: rule.rule_name,
       description: rule.description || '',
-      approvers: orderedApprovers,
+      approvers: rule.approvers || [],
       rule_type: rule.rule_type,
       min_approval_percentage: rule.min_approval_percentage,
       specific_approver_required: rule.specific_approver_required || '',
@@ -189,11 +183,13 @@ export const ApprovalRules: React.FC = () => {
   };
 
   const toggleApprover = (userId: string) => {
+    console.log('Toggling user:', userId, 'Current approvers:', formData.approvers);
     setFormData((prev) => {
-      if (prev.approvers.includes(userId)) {
-        return { ...prev, approvers: prev.approvers.filter((id) => id !== userId) };
-      }
-      return { ...prev, approvers: [...prev.approvers, userId] };
+      const newApprovers = prev.approvers.includes(userId)
+        ? prev.approvers.filter(id => id !== userId)
+        : [...prev.approvers, userId];
+      console.log('New approvers:', newApprovers);
+      return { ...prev, approvers: newApprovers };
     });
   };
 
@@ -358,13 +354,13 @@ export const ApprovalRules: React.FC = () => {
       </div>
 
       {showModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 overflow-y-auto">
-          <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full p-6 my-8">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-6">
             <h2 className="text-2xl font-bold text-slate-900 mb-6">
               {editingRule ? 'Edit Rule' : 'Create Rule'}
             </h2>
 
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <form onSubmit={handleSubmit} className="space-y-3">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">Rule Name</label>
                 <input
@@ -409,20 +405,26 @@ export const ApprovalRules: React.FC = () => {
                   </label>
                   <div className="border border-slate-300 rounded-lg p-4 max-h-48 overflow-y-auto">
                     {users.map((user) => (
-                      <label
+                      <div
                         key={user.id}
-                        className="flex items-center py-2 hover:bg-slate-50 px-2 rounded cursor-pointer"
+                        className="flex items-center py-2 hover:bg-slate-50 px-2 rounded"
                       >
                         <input
                           type="checkbox"
+                          id={`approver-${user.id}`}
                           checked={formData.approvers.includes(user.id)}
-                          onChange={() => toggleApprover(user.id)}
+                          onChange={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            console.log('Checkbox clicked for user:', user);
+                            toggleApprover(user.id);
+                          }}
                           className="w-4 h-4 text-blue-600 rounded focus:ring-2 focus:ring-blue-500"
                         />
-                        <span className="ml-3 text-sm text-slate-900">
+                        <label htmlFor={`approver-${user.id}`} className="ml-3 text-sm text-slate-900 cursor-pointer">
                           {user.name} ({user.role})
-                        </span>
-                      </label>
+                        </label>
+                      </div>
                     ))}
                     {users.length === 0 && (
                       <p className="text-sm text-slate-500 text-center">No approvers available</p>
@@ -435,8 +437,8 @@ export const ApprovalRules: React.FC = () => {
                     <div className="mt-4">
                       <div className="text-sm font-medium text-slate-700 mb-2">Approval Sequence</div>
                       <ol className="space-y-2">
-                        {formData.approvers.map((approverId, index) => {
-                          const approver = usersById.get(approverId);
+                        {formData.approvers.filter(id => usersById.has(id)).map((approverId, index) => {
+                          const approver = usersById.get(approverId)!;
                           return (
                             <li
                               key={approverId}
@@ -445,8 +447,7 @@ export const ApprovalRules: React.FC = () => {
                               <div>
                                 <div className="text-xs font-semibold text-slate-500 uppercase">Step {index + 1}</div>
                                 <div className="text-sm text-slate-900">
-                                  {approver?.name ?? 'Unknown User'}{' '}
-                                  <span className="text-xs text-slate-500">({approver?.role ?? 'n/a'})</span>
+                                  {approver.name} ({approver.role})
                                 </div>
                               </div>
                               <div className="flex items-center gap-2">
@@ -461,7 +462,7 @@ export const ApprovalRules: React.FC = () => {
                                 <button
                                   type="button"
                                   onClick={() => moveApprover(index, index + 1)}
-                                  disabled={index === formData.approvers.length - 1}
+                                  disabled={index === formData.approvers.filter(id => usersById.has(id)).length - 1}
                                   className="px-2 py-1 text-xs border border-slate-300 rounded disabled:opacity-40"
                                 >
                                   Down
