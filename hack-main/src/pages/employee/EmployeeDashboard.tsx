@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '../../contexts/AuthContext';
 import { request } from '../../lib/api';
 import { fetchCurrencyConversion } from '../../lib/currency';
-import type { Company, CurrencyQuote, ExpenseCategory, ReceiptAnalysis } from '../../types';
+import type { Company, ExpenseCategory, ReceiptAnalysis } from '../../types';
 
 const SUPPORTED_CURRENCIES = ['USD', 'EUR', 'GBP', 'INR', 'CAD', 'AUD'] as const;
 
